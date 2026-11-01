@@ -701,9 +701,12 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
   -- Only submodules of `pkgs` will be edited or have info reported on them
   let pkgs := mods.map (·.getRoot)
 
-  -- Load all the modules
+  -- Load all the modules. With `--only`, only the selected modules' private data is read: the other
+  -- modules are not minimized, and a module's imports are used only by its own private data or by
+  -- what other modules can see of them (their public data).
   let imps := mods.map ({ module := · })
-  let (_, s) ← importModulesCore imps (isExported := true) |>.run
+  let privateModules? := if args.onlyMods.isEmpty then none else some (NameSet.ofArray args.onlyMods)
+  let (_, s) ← importModulesCore imps (isExported := true) (privateModules? := privateModules?) |>.run
   let s := s.markAllExported
   let mut env ← finalizeImport s (isModule := true) imps {} (leakEnv := true) (loadExts := false)
   if env.header.moduleData.any (!·.isModule) then
@@ -720,9 +723,14 @@ public def run (args : Args) (srcSearchPath : SearchPath := {}) : IO UInt32 := d
   StateT.run' (s := initStateFromEnv env) do
 
   let s ← get
-  -- Run the calculation of the `needs` array in parallel
+  -- Run the calculation of the `needs` array in parallel, for the modules to be minimized: under
+  -- `--only`, the other modules keep all their imports (`addOnly`), and their private data, which
+  -- their needs come from, is not loaded.
   let needs := s.mods.mapIdx fun i _ =>
-    Task.spawn fun _ => calcNeeds s i
+    if privateModules?.all (·.contains s.modNames[i]!) then
+      Task.spawn fun _ => calcNeeds s i
+    else
+      .pure .empty
 
   -- Parse headers in parallel
   let headers ← s.mods.mapIdxM fun i _ =>

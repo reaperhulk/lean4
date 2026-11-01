@@ -2476,7 +2476,12 @@ abbrev ImportStateM := StateRefT ImportState IO
 @[inline] nonrec def ImportStateM.run (x : ImportStateM α) (s : ImportState := default) : IO (α × ImportState) :=
   x.run s
 
-private def readModuleDataPartsOfMod (mod : Name) : IO (Array (ModuleData × CompactedRegion)) := do
+/--
+Reads the `.olean` parts of `mod`. Without `withPrivate`, leaves out its `.olean.private`, which
+`readPrivatePartOfMod` reads if the module's import level is upgraded later.
+-/
+private def readModuleDataPartsOfMod (mod : Name) (withPrivate := true) :
+    IO (Array (ModuleData × CompactedRegion)) := do
   let mFile ← findOLean mod
   unless (← mFile.pathExists) do
     throw <| IO.userError s!"object file '{mFile}' of module {mod} does not exist"
@@ -2487,9 +2492,19 @@ private def readModuleDataPartsOfMod (mod : Name) : IO (Array (ModuleData × Com
   -- Necessary because the import level may be upgraded a later import.
   let sFile := OLeanLevel.server.adjustFileName mFile
   let server ← unsafe CompactedRegion.read (α := ModuleData) sFile #[main.2]
+  if !withPrivate then
+    return #[main, server]
   let pFile := OLeanLevel.private.adjustFileName mFile
   let priv ← unsafe CompactedRegion.read (α := ModuleData) pFile #[main.2, server.2]
   return #[main, server, priv]
+
+/-- Adds the `.olean.private` part of `mod` to `parts`, which `readModuleDataPartsOfMod` read
+without it. -/
+private def readPrivatePartOfMod (mod : Name) (parts : Array (ModuleData × CompactedRegion)) :
+    IO (Array (ModuleData × CompactedRegion)) := do
+  let pFile := OLeanLevel.private.adjustFileName (← findOLean mod)
+  let priv ← unsafe CompactedRegion.read (α := ModuleData) pFile (parts.map (·.2))
+  return parts.push priv
 
 private def readIRPartsOfMod (mod : Name) : IO (Array (ModuleData × CompactedRegion)) := do
   let mFile ← findOLean mod
@@ -2510,7 +2525,11 @@ partial def importModulesCore
     (arts : NameMap ImportArtifacts := {}) (isExported : Bool := globalLevel < .private)
     -- leanir: ensure (at least) `.ir.sig` is loaded for every module with data; also ignore `meta`
     -- on imports
-    (loadIRSig : Bool := false) :
+    (loadIRSig : Bool := false)
+    -- With `globalLevel := .private`, import only these modules (and the modules they `import all`,
+    -- transitively) with their private information; every other module is still imported, but with
+    -- its public information alone, without reading its `.olean.private`. Used by `lake shake --only`.
+    (privateModules? : Option NameSet := none) :
     ImportStateM Unit := do
   go imports (importAll := true) (isExported := isExported) (needsData := true) (needsIRTrans := false)
   if globalLevel < .private then
@@ -2578,9 +2597,10 @@ where
   go (imports : Array Import) (importAll isExported needsData needsIRTrans : Bool) := do
     for i in imports do
       -- `B > none`?
-      let needsData := needsData && (i.isExported || importAll)
+      let needsData := needsData && (i.isExported || importAll || globalLevel == .private)
       -- `B ≥ privateAll`?
-      let importAll := globalLevel == .private || importAll && i.importAll
+      let importAll := globalLevel == .private && privateModules?.all (·.contains i.module) ||
+        importAll && i.importAll
       -- `B ≥ public`?
       let isExported := isExported && i.isExported
       -- `leanir` (`loadIRSig`) only needs `.ir.sig` of direct imports, not transitive `.ir`
@@ -2609,7 +2629,9 @@ where
         let needsIRTrans := needsIRTrans || mod.needsIRTrans
         let needsIR := needsIRTrans || importAll || (loadIRSig && needsData)
         let irPhases := if irPhases == mod.irPhases then irPhases else .all
-        let parts ← if needsData && mod.parts.isEmpty then loadData i else pure mod.parts
+        let parts ← if needsData && mod.parts.isEmpty then loadData i importAll
+          else if importAll && !mod.importAll && privateModules?.isSome then loadPrivate i mod.parts
+          else pure mod.parts
         let irParts ← if needsIR && mod.irParts.isEmpty then loadIR i else pure mod.irParts
         if importAll != mod.importAll || isExported != mod.isExported ||
             needsIRTrans != mod.needsIRTrans || needsData != mod.hasData || irPhases != mod.irPhases then
@@ -2620,7 +2642,7 @@ where
         continue
 
       -- newly discovered module
-      let parts ← if needsData then loadData i else pure #[]
+      let parts ← if needsData then loadData i importAll else pure #[]
       let irParts ← if needsIR then loadIR i else pure #[]
       let mod := { i with importAll, isExported, irPhases, parts, irParts, needsIRTrans, hasData := needsData }
       goRec mod
@@ -2628,15 +2650,29 @@ where
         moduleNameMap := s.moduleNameMap.insert i.module mod
         moduleNames := s.moduleNames.push i.module
       }
-  -- .olean + .olean.server (optional) + .olean.private (optional)
-  loadData i := do
+  -- .olean + .olean.server (optional) + .olean.private (optional, and only under `importAll` with
+  -- `privateModules?`)
+  loadData i importAll := do
+    let withPrivate := privateModules?.isNone || importAll
     if let some arts := arts.find? i.module then
       -- Opportunistically load all available parts.
       -- Producer (e.g., Lake) should limit parts to the proper import level.
       let fnames := arts.oleanParts (inServer := globalLevel ≥ .server)
-      readModuleDataParts fnames
+      readModuleDataParts (if withPrivate then fnames else fnames.take 2)
     else
-      readModuleDataPartsOfMod i.module
+      readModuleDataPartsOfMod i.module withPrivate
+  -- the `.olean.private` of a module `loadData` read without it, now imported with `importAll`
+  loadPrivate i parts := do
+    if parts.size != 2 then
+      return parts  -- not a module, or the private part is already there
+    if let some arts := arts.find? i.module then
+      let fnames := arts.oleanParts (inServer := globalLevel ≥ .server)
+      if h : 2 < fnames.size then
+        let priv ← unsafe CompactedRegion.read (α := ModuleData) fnames[2] (parts.map (·.2))
+        return parts.push priv
+      return parts
+    else
+      readPrivatePartOfMod i.module parts
   -- .ir.sig + .ir (optional)
   loadIR i := do
     if let some arts := arts.find? i.module then

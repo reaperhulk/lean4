@@ -29,3 +29,14 @@ test_run build
 
 # Verify Main.lean matches expected
 check_diff ../expected/Main.lean Main.lean
+
+# With `--only`, only the selected modules' private data is read, and the suggestions for them are
+# those of a run over every module
+cd ..
+./clean.sh
+copy_to_work input/*
+test_run build
+lake_out shake Main || true
+cp produced.out full.out
+lake_out shake --only Main Main || true
+check_diff full.out produced.out

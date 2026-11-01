@@ -398,6 +398,9 @@ OPTIONS:
                         public imports yet. As these are passed on to
                         importing modules, this adds far fewer imports.
                         Only one of these two options can be used, once
+  --only <MODULE>       Minimize only this module (repeatable): the other
+                        modules keep their imports, and their private data
+                        (`.olean.private`) is not read
   --explain             Show which constants require each import
   --fix                 Apply suggested fixes directly to source files
   --gh-style            Output in GitHub problem matcher format
