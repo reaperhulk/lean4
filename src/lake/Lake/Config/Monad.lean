@@ -183,6 +183,16 @@ If not configured at all, this defaults to {lean}`false`.
   (self.restoreAllArtifacts? <|> ·.restoreAllArtifacts? |>.getD false) <$> getWorkspace
 
 /--
+Returns whether Lake should write `.hash` files for the package's module outputs.
+
+If the package has not configured this option itself through
+{lean}`Package.writeHashFiles?`, this will default to the workspace configuration.
+If not configured at all, this defaults to {lean}`true`.
+-/
+@[inline] public def Package.writeHashFiles [MonadWorkspace m] (self : Package) : m Bool :=
+  (self.writeHashFiles? <|> ·.writeHashFiles? |>.getD true) <$> getWorkspace
+
+/--
 Returns whether the package should retrieve its artifacts from the Lake artifact cache.
 
 If the package has not configured the artifact cache itself through

@@ -410,8 +410,12 @@ If hash files are not trusted (e.g., with `--rehash`) or the `.hash` file does
 not exist, it will be created with a newly computed hash.
 
 If `text := true`, `file` is hashed as a text file rather than a binary file.
+
+If `hashFile := false`, the `.hash` file is neither read nor written.
 -/
-public def fetchFileHash (file : FilePath) (text := false) : JobM Hash := do
+public def fetchFileHash (file : FilePath) (text := false) (hashFile := true) : JobM Hash := do
+  unless hashFile do
+    return ← computeFileHash file text
   let hashFile := FilePath.mk <| file.toString ++ ".hash"
   if (← getTrustHash) then
     if let some hash ← Hash.load? hashFile then
@@ -463,9 +467,11 @@ saves its hash in its `.hash` file.
 * `exe`: the cached file will be executable.
 * `useLocalFile`: the resulting artifact will use `file`'s path instead of path to
 the file in the cache.
+* `hashFile`: whether to save the hash in `file`'s `.hash` file.
 -/
 public def Cache.saveArtifact
   (cache : Cache) (file : FilePath) (ext := "art") (text exe useLocalFile := false)
+  (hashFile := true)
 : IO Artifact := do
   try
     if text then
@@ -482,7 +488,7 @@ public def Cache.saveArtifact
         createParentDirs cacheFile
         atomicWrite cacheFile normalized.toByteArray
       IO.setAccessRights cacheFile ⟨r, r, r⟩
-      writeFileHash file hash
+      if hashFile then writeFileHash file hash
       let mtime ← getMTime cacheFile
       let path := if useLocalFile then file else cacheFile
       return {descr, name := file.toString, path, mtime}
@@ -502,7 +508,7 @@ public def Cache.saveArtifact
           unless e matches .alreadyExists .. do
             atomicWrite cacheFile contents
       IO.setAccessRights cacheFile ⟨r, r, r⟩
-      writeFileHash file hash
+      if hashFile then writeFileHash file hash
       let mtime ← getMTime cacheFile
       let path := if useLocalFile then file else cacheFile
       return {descr, name := file.toString, path, mtime}
@@ -535,8 +541,8 @@ where atomicWrite cacheFile contents := do
 @[inline, inherit_doc Cache.saveArtifact]
 public def cacheArtifact
   [MonadWorkspace m] [MonadLiftT IO m] [Monad m]
-  (file : FilePath) (ext := "art") (text exe useLocalFile := false)
-: m Artifact := do (← getLakeCache).saveArtifact file ext text exe useLocalFile
+  (file : FilePath) (ext := "art") (text exe useLocalFile := false) (hashFile := true)
+: m Artifact := do (← getLakeCache).saveArtifact file ext text exe useLocalFile hashFile
 
 /-- **For internal use only.** -/
 public class ResolveOutputs (α : Type) where
@@ -662,9 +668,12 @@ instance : ResolveOutputs (XArtifact exe) := ⟨(resolveArtifactOutput (exe := e
 Construct an artifact from a path outside the Lake artifact cache.
 
 If `text := true`, `file` is hashed as a text file rather than a binary file.
+If `hashFile := false`, the file's `.hash` file is neither read nor written.
 -/
-public def computeArtifact (path : FilePath) (ext := "art") (text := false) : JobM Artifact := do
-  let hash ← fetchFileHash path text
+public def computeArtifact
+  (path : FilePath) (ext := "art") (text := false) (hashFile := true)
+: JobM Artifact := do
+  let hash ← fetchFileHash path text hashFile
   let mtime := (← getMTime path |>.toBaseIO).toOption.getD 0
   return {descr := artifactWithExt hash ext, name := path.toString, path, mtime}
 
@@ -675,10 +684,13 @@ altered artifact using `file` as the preferred path.
 If `file` already exists, it is used. Otherwise, the function first attempts to create `file`
 as hard link to the artifact. If this fails (e.g., because the artifact and path are on differets
 drives and/or file systems), falls back to copying the artifact to the new path.
+If `hashFile := true`, a newly restored file also gets a `.hash` file.
 
 **For internal use.**
 -/
-public def restoreArtifact (file : FilePath) (art : Artifact) (exe := false) : LogIO Artifact := do
+public def restoreArtifact
+  (file : FilePath) (art : Artifact) (exe := false) (hashFile := true)
+: LogIO Artifact := do
   unless (← file.pathExists) do
     logVerbose s!"found artifact in cache: {art.path}"
     createParentDirs file
@@ -695,7 +707,7 @@ public def restoreArtifact (file : FilePath) (art : Artifact) (exe := false) : L
       let r := {read := true, write := false, execution := exe}
       IO.setAccessRights file ⟨r, r, r⟩
     logVerbose s!"restored artifact from cache to: {file}"
-    writeFileHash file art.hash
+    if hashFile then writeFileHash file art.hash
   return art.useLocalFile file
 
 /-- **For internal use only.** -/

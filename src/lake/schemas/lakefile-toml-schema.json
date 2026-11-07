@@ -526,6 +526,10 @@
                     "type": "boolean",
                     "description": "Whether, when the local artifact cache is enabled, Lake should copy all cached artifacts into the build directory. This ensures the build results are available to external consumers who expect them in the build directory.\n\nIf `none` (the default), this will fallback to (in order):\n* The `LAKE_RESTORE_ARTIFACTS` environment variable (if set).\n* The workspace root's `restoreAllArtifacts` configuration (if set and this package is a dependency).\n* **Lake's default**: `false`."
                 },
+                "writeHashFiles": {
+                    "type": "boolean",
+                    "description": "Whether Lake should save the content hashes of Lean module build outputs (e.g., `.olean`, `.ilean`, `.c`) in `.hash` files next to them.\n\nLake does not need these files: it also records the hashes in the module's `.trace` file. Disabling them avoids writing many small files in large projects. However, some external tools expect them (e.g., Mathlib's `lake exe cache`).\n\nIf `none` (the default), this will fallback to (in order):\n* The `LAKE_WRITE_HASH_FILES` environment variable (if set).\n* The workspace root's `writeHashFiles` configuration (if set and this package is a dependency).\n* **Lake's default**: `true`."
+                },
                 "srcDir": {
                     "type": "string",
                     "default": ".",

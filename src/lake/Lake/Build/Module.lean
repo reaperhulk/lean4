@@ -883,24 +883,25 @@ instance : ResolveOutputs ModuleOutputs := ⟨resolveModuleOutputs⟩
 def Module.cacheOutputArtifacts
   (mod : Module)  (isModule : Bool) (useLocalFile : Bool) (postponesCompile : Bool)
 : JobM ModuleOutputArtifacts := do
+  let hashFile ← mod.pkg.writeHashFiles
   return {
     isModule
-    olean := ← cache mod.oleanFile "olean"
-    oleanServer? := ← cacheIf? isModule mod.oleanServerFile "olean.server"
-    oleanPrivate? := ← cacheIf? isModule mod.oleanPrivateFile "olean.private"
-    irSig? := ← cacheIf? (isModule && !postponesCompile) mod.irSigFile "ir.sig"
-    ir? := ← cacheIf? (isModule && !postponesCompile) mod.irFile "ir"
-    ilean := ← cache mod.ileanFile "ilean"
-    c? := ← cacheIf? (!(isModule && postponesCompile)) mod.cFile "c"
-    bc? := ← cacheIf? (Lean.Internal.hasLLVMBackend ()) mod.bcFile "bc"
-    ltar? := ← cacheIf? (← mod.ltarFile.pathExists) mod.ltarFile "ltar"
+    olean := ← cache hashFile mod.oleanFile "olean"
+    oleanServer? := ← cacheIf? hashFile isModule mod.oleanServerFile "olean.server"
+    oleanPrivate? := ← cacheIf? hashFile isModule mod.oleanPrivateFile "olean.private"
+    irSig? := ← cacheIf? hashFile (isModule && !postponesCompile) mod.irSigFile "ir.sig"
+    ir? := ← cacheIf? hashFile (isModule && !postponesCompile) mod.irFile "ir"
+    ilean := ← cache hashFile mod.ileanFile "ilean"
+    c? := ← cacheIf? hashFile (!(isModule && postponesCompile)) mod.cFile "c"
+    bc? := ← cacheIf? hashFile (Lean.Internal.hasLLVMBackend ()) mod.bcFile "bc"
+    ltar? := ← cacheIf? hashFile (← mod.ltarFile.pathExists) mod.ltarFile "ltar"
   }
 where
-  @[inline] cache file ext := do
+  @[inline] cache hashFile file ext := do
     -- `text` is always `false` because Lean produces LF-only `.ir` and `.c`
-    cacheArtifact file ext (useLocalFile := useLocalFile)
-  @[inline] cacheIf? c art ext := do
-    if c then return some (← cache art ext) else return none
+    cacheArtifact file ext (useLocalFile := useLocalFile) (hashFile := hashFile)
+  @[inline] cacheIf? hashFile c art ext := do
+    if c then return some (← cache hashFile art ext) else return none
 
 /--
 Some module build artifacts must be located in the build directory (e.g., ILeans).
@@ -908,24 +909,26 @@ This copies the required artifacts from the local Lake cache to the build direct
 updates the data structure with the new paths.
 -/
 def Module.restoreNeededArtifacts (mod : Module) (cached : ModuleOutputArtifacts) : JobM ModuleOutputArtifacts := do
+  let hashFile ← mod.pkg.writeHashFiles
   return {cached with
-    ilean := ← restoreArtifact mod.ileanFile cached.ilean
+    ilean := ← restoreArtifact mod.ileanFile cached.ilean (hashFile := hashFile)
   }
 
 def Module.restoreAllArtifacts (mod : Module) (cached : ModuleOutputArtifacts) : JobM ModuleOutputArtifacts := do
+  let hashFile ← mod.pkg.writeHashFiles
   return {cached with
-    olean := ← restoreArtifact mod.oleanFile cached.olean
-    oleanServer? := ← restoreSome mod.oleanServerFile cached.oleanServer?
-    oleanPrivate? := ← restoreSome mod.oleanPrivateFile cached.oleanPrivate?
-    ilean := ← restoreArtifact mod.ileanFile cached.ilean
-    irSig? := ← restoreSome mod.irSigFile cached.irSig?
-    ir? := ← restoreSome mod.irFile cached.ir?
-    c? := ← restoreSome mod.cFile cached.c?
-    bc? := ← restoreSome mod.bcFile cached.bc?
-    ltar? := ← restoreSome mod.ltarFile cached.ltar?
+    olean := ← restoreArtifact mod.oleanFile cached.olean (hashFile := hashFile)
+    oleanServer? := ← restoreSome hashFile mod.oleanServerFile cached.oleanServer?
+    oleanPrivate? := ← restoreSome hashFile mod.oleanPrivateFile cached.oleanPrivate?
+    ilean := ← restoreArtifact mod.ileanFile cached.ilean (hashFile := hashFile)
+    irSig? := ← restoreSome hashFile mod.irSigFile cached.irSig?
+    ir? := ← restoreSome hashFile mod.irFile cached.ir?
+    c? := ← restoreSome hashFile mod.cFile cached.c?
+    bc? := ← restoreSome hashFile mod.bcFile cached.bc?
+    ltar? := ← restoreSome hashFile mod.ltarFile cached.ltar?
   }
 where
-  @[inline] restoreSome file art? := art?.mapM (restoreArtifact file ·)
+  @[inline] restoreSome hashFile file art? := art?.mapM (restoreArtifact file · (hashFile := hashFile))
 
 public def Module.checkArtifactsExist
   (self : Module) (isModule : Bool) (skipIR := isModule && self.postponeCompile)
@@ -1007,39 +1010,65 @@ def Module.mkArtifacts (mod : Module) (srcFile : FilePath) (isModule : Bool) : M
 
 def Module.computeIRArtifacts
   (mod : Module) (elabArts : ModuleOutputArtifacts) (reuse : Bool)
-: FetchM ModuleOutputArtifacts :=
+: FetchM ModuleOutputArtifacts := do
+  let hashFile ← mod.pkg.writeHashFiles
   return {elabArts with
-    irSig? := some <| ← compute mod.irSigFile "ir.sig"
-    ir? := some <| ← compute mod.irFile "ir"
-    c? := some <| ← compute mod.cFile "c"
+    irSig? := some <| ← compute hashFile mod.irSigFile "ir.sig"
+    ir? := some <| ← compute hashFile mod.irFile "ir"
+    c? := some <| ← compute hashFile mod.cFile "c"
     ltar? := if reuse then elabArts.ltar? else none
   }
 where
-  @[inline] compute file ext := do
+  @[inline] compute hashFile file ext := do
     -- Note: Lean produces LF-only line endings for `.c` and `.ilean`, so no normalization.
-    computeArtifact file ext (text := false)
+    computeArtifact file ext (text := false) (hashFile := hashFile)
 
+/-- The module output descriptions recorded in a saved trace, if any. -/
+def SavedTrace.moduleOutputDescrs? : SavedTrace → Option ModuleOutputDescrs
+  | .ok data => data.outputs?.bind (fromJson? · |>.toOption)
+  | _ => none
+
+/--
+Construct the module's output artifacts from the files in the build directory.
+
+If the package does not write `.hash` files, hashes are taken from `prev?` where it
+describes an artifact. Thus, `prev?` must describe the artifacts currently on disk.
+-/
 def Module.computeArtifacts
   (mod : Module) (isModule : Bool) (skipIR : Bool)
-: FetchM ModuleOutputArtifacts :=
+  (prev? : Option ModuleOutputDescrs := none)
+: FetchM ModuleOutputArtifacts := do
+  let hashFile ← mod.pkg.writeHashFiles
+  -- With `.hash` files, keep creating missing ones for the external tools that expect them.
+  let prev? := if hashFile || !(← getTrustHash) then none else prev?
   return {
     isModule
-    olean := ← compute mod.oleanFile "olean"
-    oleanServer? := ← computeIf isModule mod.oleanServerFile "olean.server"
-    oleanPrivate? := ← computeIf isModule mod.oleanPrivateFile "olean.private"
-    ilean := ← compute mod.ileanFile "ilean"
-    irSig? := ← computeIf (isModule && !skipIR) mod.irSigFile "ir.sig"
-    ir? := ← computeIf (isModule && !skipIR) mod.irFile "ir"
-    c? := ← computeIf (!(isModule && skipIR)) mod.cFile "c"
-    bc? := ← computeIf (Lean.Internal.hasLLVMBackend ()) mod.bcFile "bc"
-    ltar? :=  ← computeIf (← mod.ltarFile.pathExists) mod.ltarFile "ltar"
+    olean := ← compute hashFile mod.oleanFile "olean" (prev?.map (·.olean))
+    oleanServer? := ← computeIf isModule hashFile mod.oleanServerFile "olean.server"
+      (prev?.bind (·.oleanServer?))
+    oleanPrivate? := ← computeIf isModule hashFile mod.oleanPrivateFile "olean.private"
+      (prev?.bind (·.oleanPrivate?))
+    ilean := ← compute hashFile mod.ileanFile "ilean" (prev?.map (·.ilean))
+    irSig? := ← computeIf (isModule && !skipIR) hashFile mod.irSigFile "ir.sig"
+      (prev?.bind (·.irSig?))
+    ir? := ← computeIf (isModule && !skipIR) hashFile mod.irFile "ir" (prev?.bind (·.ir?))
+    c? := ← computeIf (!(isModule && skipIR)) hashFile mod.cFile "c" (prev?.bind (·.c?))
+    bc? := ← computeIf (Lean.Internal.hasLLVMBackend ()) hashFile mod.bcFile "bc"
+      (prev?.bind (·.bc?))
+    ltar? :=  ← computeIf (← mod.ltarFile.pathExists) hashFile mod.ltarFile "ltar"
+      (prev?.bind (·.ltar?))
   }
 where
-  @[inline] compute file ext := do
+  compute (hashFile : Bool) (file : FilePath) (ext : String) (prev? : Option ArtifactDescr) :
+      JobM Artifact := do
+    if let some descr := prev? then
+      if descr.ext == ext then
+        let mtime := (← getMTime file |>.toBaseIO).toOption.getD 0
+        return {descr, name := file.toString, path := file, mtime}
     -- Note: Lean produces LF-only line endings for `.c` and `.ilean`, so no normalization.
-    computeArtifact file ext (text := false)
-  computeIf c file ext := do
-     if c then return some (← compute file ext) else return none
+    computeArtifact file ext (text := false) (hashFile := hashFile)
+  computeIf c hashFile file ext prev? := do
+     if c then return some (← compute hashFile file ext prev?) else return none
 
 instance : ToOutputJson ModuleOutputArtifacts := ⟨(toJson ·.descrs)⟩
 
@@ -1081,10 +1110,12 @@ def Module.packLtar
       args := addArt args "1" art
     return args
   proc (quiet := true) {cmd := (← getLeantar).toString, args}
+  let hashFile ← self.pkg.writeHashFiles
   if (← self.pkg.isArtifactCacheWritable) then
-    cacheArtifact self.ltarFile "ltar" (useLocalFile := ← self.pkg.restoreAllArtifacts)
+    let useLocalFile ← self.pkg.restoreAllArtifacts
+    cacheArtifact self.ltarFile "ltar" (useLocalFile := useLocalFile) (hashFile := hashFile)
   else
-    computeArtifact self.ltarFile "ltar"
+    computeArtifact self.ltarFile "ltar" (hashFile := hashFile)
 
 def Module.unpackLtar (self : Module) (ltar : FilePath) (inputHash : Hash) : JobM Unit := do
   -- Archive has no `depHash` (packed with `-s`); supply it via `-j -` JSON stdin.
@@ -1188,7 +1219,10 @@ where
         else
           return .complete arts
       else
-        let ltar ← if restoreAll then restoreArtifact mod.ltarFile ltar else pure ltar
+        let ltar ←
+          if restoreAll then
+            restoreArtifact mod.ltarFile ltar (hashFile := ← mod.pkg.writeHashFiles)
+          else pure ltar
         return .incomplete savedTrace (some ltar)
     | .arts arts =>
       unless (← savedTrace.replayCachedIfUpToDate inputHash) do
@@ -1202,7 +1236,7 @@ where
       -- Reuse a previously packed ltar if one exists
       if arts.ltar?.isNone then
         if (← mod.ltarFile.pathExists) then
-          let ltar ← computeArtifact mod.ltarFile "ltar"
+          let ltar ← computeArtifact mod.ltarFile "ltar" (hashFile := ← mod.pkg.writeHashFiles)
           return .complete {arts with ltar? := some ltar}
       return .complete arts
   fetchCore (presetup : ModulePreSetup) : JobM ModuleOutputArtifacts := do
@@ -1239,13 +1273,19 @@ where
     else
       let status ← savedTrace.replayIfUpToDate' (oldTrace := presetup.srcMTime) mod depTrace
       if status.isUpToDate then
-        unless (← mod.checkArtifactsExist presetup.isModule presetup.postponeCompile) do
+        let outputsExist ← mod.checkArtifactsExist presetup.isModule presetup.postponeCompile
+        unless outputsExist do
           -- As above: restore on a hash match and rebuild on a mtime match.
           if status == .hashUpToDate then
             mod.unpackLtar mod.ltarFile depTrace.hash
           else
             discard <| mod.buildLean presetup
-        mod.computeArtifacts presetup.isModule presetup.postponeCompile
+        -- The saved outputs describe the artifacts only if those were not just recreated.
+        let prev? :=
+          if outputsExist && status == .hashUpToDate then
+            savedTrace.moduleOutputDescrs?
+          else none
+        mod.computeArtifacts presetup.isModule presetup.postponeCompile prev?
       else
         if (← mod.pkg.isArtifactCacheReadable) then
           match (← fetchFromCache? presetup savedTrace true) with

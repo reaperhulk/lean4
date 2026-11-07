@@ -151,6 +151,10 @@ public abbrev isRootArtifactCacheEnabled (ws : Workspace) : Bool :=
 @[inline] public def restoreAllArtifacts? (ws : Workspace) : Option Bool :=
   ws.lakeEnv.restoreAllArtifacts? <|> ws.root.restoreAllArtifacts?
 
+/-- Whether `.hash` files should be written by default for module outputs of packages in the workspace. -/
+@[inline] public def writeHashFiles? (ws : Workspace) : Option Bool :=
+  ws.lakeEnv.writeHashFiles? <|> ws.root.writeHashFiles?
+
 /-- Returns the toolchain identifier for the Lake cache corresponding the workspace's toolchain. -/
 @[inline] public def cacheToolchain (ws : Workspace) : CacheToolchain :=
   ws.lakeEnv.cacheToolchain
@@ -419,6 +423,7 @@ public def augmentedEnvVars (self : Workspace) : Array (String × Option String)
     ("LAKE_CACHE_DIR", some self.lakeCache.dir.toString),
     ("LAKE_ARTIFACT_CACHE", if let some b := self.enableArtifactCache? then toString b else ""),
     ("LAKE_RESTORE_ARTIFACTS", if let some b := self.restoreAllArtifacts? then toString b else ""),
+    ("LAKE_WRITE_HASH_FILES", if let some b := self.writeHashFiles? then toString b else ""),
     ("LEAN_PATH", some self.augmentedLeanPath.toString),
     ("LEAN_SRC_PATH", some self.augmentedLeanSrcPath.toString),
     -- Allow the Lean version to change dynamically within core

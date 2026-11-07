@@ -301,6 +301,21 @@ public configuration PackageConfig (p : Name) (n : Name) extends WorkspaceConfig
   restoreAllArtifacts?, restoreAllArtifacts : Option Bool := none
 
   /--
+  Whether Lake should save the content hashes of Lean module build outputs
+  (e.g., `.olean`, `.ilean`, `.c`) in `.hash` files next to them.
+
+  Lake does not need these files: it also records the hashes in the module's
+  `.trace` file. Disabling them avoids writing many small files in large projects.
+  However, some external tools expect them (e.g., Mathlib's `lake exe cache`).
+
+  If `none` (the default), this will fallback to (in order):
+  * The `LAKE_WRITE_HASH_FILES` environment variable (if set).
+  * The workspace root's `writeHashFiles` configuration (if set and this package is a dependency).
+  * **Lake's default**: `true`.
+  -/
+  writeHashFiles?, writeHashFiles : Option Bool := none
+
+  /--
   Whether native libraries (of this package) should be prefixed with `lib` on Windows.
 
   Unlike Unix, Windows does not require native libraries to start with `lib` and,

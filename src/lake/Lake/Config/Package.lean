@@ -402,6 +402,10 @@ The package's `buildDir` joined with its `nativeLibDir` configuration.
 @[inline] public def restoreAllArtifacts? (self : Package) : Option Bool :=
   self.config.restoreAllArtifacts?
 
+/-- The package's `writeHashFiles?` configuration. -/
+@[inline] public def writeHashFiles? (self : Package) : Option Bool :=
+  self.config.writeHashFiles?
+
 /-- The directory within the Lake cache were package-scoped files are stored. -/
 public def cacheScope (self : Package) : String :=
   self.baseName.toString (escape := false)

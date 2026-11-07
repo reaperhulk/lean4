@@ -1,0 +1,12 @@
+name = "test"
+defaultTargets = ["Foo", "Mod"]
+writeHashFiles = false
+
+[[lean_lib]]
+name = "Foo"
+
+[[lean_lib]]
+name = "Bar"
+
+[[lean_lib]]
+name = "Mod"

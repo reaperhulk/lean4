@@ -62,6 +62,14 @@ LAKE_RESTORE_ARTIFACTS= test_eq "true" -f restoreAllArtifacts.toml env printenv 
 LAKE_RESTORE_ARTIFACTS= test_eq "false" -f noRestoreArtifacts.toml env printenv LAKE_RESTORE_ARTIFACTS
 test_cmd rm lake-manifest.json
 
+# Test `LAKE_WRITE_HASH_FILES` setting and default
+LAKE_WRITE_HASH_FILES=true test_eq "true" env printenv LAKE_WRITE_HASH_FILES
+LAKE_WRITE_HASH_FILES=false test_eq "false" env printenv LAKE_WRITE_HASH_FILES
+LAKE_WRITE_HASH_FILES= test_eq "" env printenv LAKE_WRITE_HASH_FILES
+LAKE_WRITE_HASH_FILES= test_eq "" -d hello env printenv LAKE_WRITE_HASH_FILES
+LAKE_WRITE_HASH_FILES= test_eq "false" -f noHashFiles.toml env printenv LAKE_WRITE_HASH_FILES
+test_cmd rm lake-manifest.json
+
 # Test `LAKE_PKG_URL_MAP` setting and errors
 echo "# TEST: LAKE_PKG_URL_MAP"
 LAKE_PKG_URL_MAP='{"a":"a"}' test_eq '{"a":"a"}' env printenv LAKE_PKG_URL_MAP
