@@ -151,7 +151,7 @@ public abbrev isRootArtifactCacheEnabled (ws : Workspace) : Bool :=
 @[inline] public def restoreAllArtifacts? (ws : Workspace) : Option Bool :=
   ws.lakeEnv.restoreAllArtifacts? <|> ws.root.restoreAllArtifacts?
 
-/-- Whether `.hash` files should be written by default for module outputs of packages in the workspace. -/
+/-- Whether {lit}`.hash` files should be written by default for module outputs of packages in the workspace. -/
 @[inline] public def writeHashFiles? (ws : Workspace) : Option Bool :=
   ws.lakeEnv.writeHashFiles? <|> ws.root.writeHashFiles?
 

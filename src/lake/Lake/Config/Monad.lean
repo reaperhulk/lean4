@@ -183,7 +183,7 @@ If not configured at all, this defaults to {lean}`false`.
   (self.restoreAllArtifacts? <|> ·.restoreAllArtifacts? |>.getD false) <$> getWorkspace
 
 /--
-Returns whether Lake should write `.hash` files for the package's module outputs.
+Returns whether Lake should write {lit}`.hash` files for the package's module outputs.
 
 If the package has not configured this option itself through
 {lean}`Package.writeHashFiles?`, this will default to the workspace configuration.
